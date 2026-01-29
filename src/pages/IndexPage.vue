@@ -73,8 +73,9 @@ const validatedUrl = computed<URL | null>(() => {
         return allowedHosts.some((allowed) => host === allowed || host.endsWith('.' + allowed))
       }
 
-      // in dev mode we want to test also on different hosts, browser might need cors everywhere plugin for hasslefree testing.
-      if (process.env.DEV) {
+      // in dev mode we allow bypass only when VITE_ALLOWED_MEDIA_HOSTS includes '*'
+      // so that setting explicit allowed hosts still restricts media even during development.
+      if (import.meta.env.DEV && allowedHosts.includes('*')) {
         return givenUrl
       }
 
