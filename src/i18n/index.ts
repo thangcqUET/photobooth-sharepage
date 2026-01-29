@@ -3,6 +3,7 @@ import daDK from './locales/da-DK.json'
 import deDE from './locales/de-DE.json'
 import elGR from './locales/el-GR.json'
 import enUS from './locales/en-US.json'
+import viVN from './locales/vi-VN.json'
 import esES from './locales/es-ES.json'
 import fiFI from './locales/fi-FI.json'
 import frFR from './locales/fr-FR.json'
@@ -27,6 +28,7 @@ export default {
   'de-DE': deDE,
   'el-GR': elGR,
   'en-US': enUS,
+  'vi-VN': viVN,
   'es-ES': esES,
   'fi-FI': fiFI,
   'fr-FR': frFR,

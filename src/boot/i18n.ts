@@ -1,13 +1,12 @@
 import { defineBoot } from '#q-app/wrappers'
 import { createI18n } from 'vue-i18n'
-import { usePreferredLanguages } from '@vueuse/core'
 import messages from 'src/i18n'
-
-const preferredLanguages = usePreferredLanguages()
 
 export default defineBoot(({ app }) => {
   const i18n = createI18n({
-    locale: preferredLanguages.value[0] || 'en-US',
+    // force Vietnamese UI by default
+    locale: 'vi-VN',
+    // fall back to English for any missing translations
     fallbackLocale: 'en-US',
     legacy: false,
     messages,

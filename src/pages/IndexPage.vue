@@ -55,17 +55,31 @@ const validatedUrl = computed<URL | null>(() => {
       const decodedUri = decodeURIComponent(props.url)
       const givenUrl = new URL(decodedUri, window.location.href) //https://nodejs.org/api/url.html#the-whatwg-url-api
       console.log(`props.url=${props.url}, decodedUri=${decodedUri}, givenUrl=${givenUrl.toString()}`)
-      // givenUrl is the parsed prop.url if absolute (base is ignored in this case.)
-      // for relative props.url, the current window location is added.
-      // means in the result, when comparing the hostname of window.location and givenUrl, if different its not local and then rejected.
+
+      // Allowlist of extra hostnames (comma separated) which are allowed to serve media (e.g. S3 buckets or CDN hosts).
+      // Configure via Vite env: VITE_ALLOWED_MEDIA_HOSTS=my-bucket.s3.amazonaws.com,cdn.example.com
+      const rawAllowed = (import.meta.env.VITE_ALLOWED_MEDIA_HOSTS as string) || ''
+      const allowedHosts = rawAllowed
+        .split(',')
+        .map((h) => h.trim())
+        .filter(Boolean)
+
+      const hostIsAllowed = (host: string) => {
+        // if any allowed host is '*', allow all hosts
+        if (allowedHosts.includes('*')) return true
+
+        if (host === window.location.hostname) return true
+        // allow exact or subdomain matches (e.g. bucket.s3.amazonaws.com matches s3.amazonaws.com entries)
+        return allowedHosts.some((allowed) => host === allowed || host.endsWith('.' + allowed))
+      }
 
       // in dev mode we want to test also on different hosts, browser might need cors everywhere plugin for hasslefree testing.
       if (process.env.DEV) {
         return givenUrl
       }
 
-      // in PROD env check for correct hostname and return only if check passes
-      if (givenUrl.hostname === window.location.hostname) {
+      // in PROD env check for allowed hostname and return only if check passes
+      if (hostIsAllowed(givenUrl.hostname)) {
         return givenUrl
       }
     } catch (e) {
