@@ -2,7 +2,7 @@
   "name": "photobooth-download",
   "version": "1.0.0",
   "description": "Frontend for users to download shots they made in the Photobooth-App",
-  "productName": "Photobooth Download",
+  "productName": "Photobooth Download Moc Photobooth",
   "author": "Michael G <me@mgineer85.de>",
   "type": "module",
   "private": true,
