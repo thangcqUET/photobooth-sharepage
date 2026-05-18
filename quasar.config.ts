@@ -64,6 +64,10 @@ export default defineConfig((ctx) => {
             /*  options */
           }),
         )
+        viteConf.define = {
+          ...viteConf.define,
+          __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
+        }
       },
 
       // viteVuePluginOptions: {},
