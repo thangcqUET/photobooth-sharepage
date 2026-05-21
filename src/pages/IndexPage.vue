@@ -54,17 +54,23 @@
       </div>
 
       <!-- Individual photos strip -->
-      <div v-if="stripItems.length > 0" class="strip-section">
-        <div class="section-label">{{ brand.messages.more_photos || $t('LABEL_MORE_PHOTOS') }}</div>
-        <div class="strip-scroll">
-          <div v-for="item in stripItems" :key="item.id" class="strip-card">
-            <img :src="mediaUrl(item)" class="strip-image" loading="lazy" @error="onImgError" />
-            <button class="strip-download" @click="downloadMedia(item)">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
-            </button>
-          </div>
-        </div>
-      </div>
+       <div v-if="stripItems.length > 0" class="strip-section">
+         <div class="section-label">{{ brand.messages.more_photos || $t('LABEL_MORE_PHOTOS') }}</div>
+         <div class="strip-scroll">
+           <div v-for="item in stripItems" :key="item.id" class="strip-card">
+             <div v-if="item.media_type === 'video'" class="strip-video-thumb">
+               <img v-if="item.thumbnail" :src="'./' + item.thumbnail" class="strip-image" loading="lazy" @error="(e: Event) => { (e.target as HTMLElement).style.display='none' }" />
+               <div class="strip-video-icon">
+                 <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+               </div>
+             </div>
+             <img v-else :src="mediaUrl(item)" class="strip-image" loading="lazy" @error="onImgError" />
+             <button class="strip-download" @click="downloadMedia(item)">
+               <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+             </button>
+           </div>
+         </div>
+       </div>
 
       <!-- Share section -->
       <div v-if="brand.share.enabled" class="share-section">
@@ -144,6 +150,7 @@ interface SessionManifestItem {
   id: string
   media_type: string
   path: string
+  thumbnail?: string
 }
 
 interface BrandData {
@@ -176,7 +183,14 @@ const copiedText = ref<string | null>(null)
 let refreshTimer: ReturnType<typeof setInterval> | null = null
 
 const heroItem = computed(() => sessionItems.value.find(i => i.media_type === 'collage' || i.media_type === 'animation'))
-const stripItems = computed(() => sessionItems.value.filter(i => i.media_type !== 'collage' && i.media_type !== 'animation'))
+const stripItems = computed(() => {
+  const items = sessionItems.value.filter(i => i.media_type !== 'collage' && i.media_type !== 'animation')
+  return [...items].sort((a, b) => {
+    if (a.media_type === 'video' && b.media_type !== 'video') return -1
+    if (a.media_type !== 'video' && b.media_type === 'video') return 1
+    return 0
+  })
+})
 
 async function loadBrand() {
   try {
@@ -382,6 +396,22 @@ onBeforeUnmount(() => { if (refreshTimer) { clearInterval(refreshTimer); refresh
   padding: 7px; overflow: visible;
 }
 .strip-image { width: 116px; height: 116px; object-fit: cover; border-radius: 8px; display: block; }
+.strip-video-thumb {
+  width: 116px; height: 116px; border-radius: 8px; position: relative;
+  display: flex; align-items: center; justify-content: center;
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  overflow: hidden;
+}
+.strip-video-thumb .strip-image {
+  position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+  object-fit: cover; border-radius: 8px;
+}
+.strip-video-icon {
+  width: 44px; height: 44px; border-radius: 50%;
+  background: rgba(0,0,0,0.5);
+  display: flex; align-items: center; justify-content: center;
+  color: rgba(255,255,255,0.9); z-index: 1;
+}
 .strip-download {
   position: absolute; bottom: -10px; right: -6px; width: 30px; height: 30px;
   border: 2px solid #fff; border-radius: 50%; background: #A9CCE3; color: #2D2D2D;
