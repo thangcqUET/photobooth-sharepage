@@ -169,8 +169,8 @@ const DEFAULT_BRAND: BrandData = {
   partner_name: '',
   logo: { image_url: '', width: 48, height: 48 },
   banner: { enabled: false, image_url: '', text: '', cta_text: 'Xem ngay', link: '' },
-  share: { enabled: true, title: 'Xem ảnh chụp của tôi tại Mộc Photobooth!', text: 'Ghé Mộc Photobooth để có những bức ảnh đẹp nhé!', show_facebook: true, show_messenger: false },
-  social: { facebook: 'https://facebook.com/mocphotobooth', instagram: 'https://instagram.com/mocphotobooth', tiktok: 'https://tiktok.com/@mocphotobooth', website: 'https://mocphotobooth.vn' },
+  share: { enabled: false, title: 'Xem ảnh chụp của tôi tại Mộc Photobooth!', text: 'Ghé Mộc Photobooth để có những bức ảnh đẹp nhé!', show_facebook: true, show_messenger: false },
+  social: { facebook: 'https://www.facebook.com/profile.php?id=61558483040026', instagram: 'https://www.instagram.com/moc_photobooth/', tiktok: 'https://www.tiktok.com/@mocptb_sukien', website: 'https://moc-photobooth.mocphotobooth.workers.dev/' },
   footer_text: 'Powered by Mộc Photobooth',
   messages: {},
 }
@@ -194,7 +194,7 @@ const stripItems = computed(() => {
 
 async function loadBrand() {
   try {
-    const resp = await fetch(`brand/brand.json?v=${encodeURIComponent(BUILD_TIME)}`)
+    const resp = await fetch(`brand/brand.json?v=${Date.now()}`)
     if (resp.ok) {
       const data = await resp.json()
       if (data.logo?.image_url) data.logo.image_url = `brand/${data.logo.image_url.split('/').pop()}`
