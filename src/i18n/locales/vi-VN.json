@@ -34,5 +34,10 @@
   "BTN_SHARE": "Chia sẻ với bạn bè",
   "MSG_SHARE_TITLE": "Xem ảnh chụp của tôi tại Mộc Photobooth!",
   "MSG_COPY_LINK": "Sao chép link",
-  "LABEL_MORE_PHOTOS": "Ảnh khác trong bộ"
+  "LABEL_MORE_PHOTOS": "Ảnh khác trong bộ",
+  "MSG_IMAGE_SYNCING": "Ảnh đang được đồng bộ lên máy chủ...",
+  "MSG_IMAGE_SYNCING_SHORT": "Đang tải lên...",
+  "MSG_NO_HERO": "Chưa có ảnh collage",
+  "MSG_NO_ADDITIONAL_PHOTOS": "Chưa có ảnh bổ sung",
+  "MSG_IMAGES_STILL_SYNCING": "{count} ảnh đang được tải lên, vui lòng đợi..."
 }

@@ -1,51 +1,78 @@
 <template>
   <q-page class="session-page">
 
-    <!-- Loading -->
-    <div v-if="sessionLoading" class="state-view">
-      <q-spinner-dots color="grey-6" size="60px" />
-      <div class="state-text">{{ brand.messages.downloading || $t('MSG_LOADING') }}</div>
+    <!-- Fatal error: manifest unreachable after max retries -->
+    <div v-if="loadingPhase === 'error_fatal'" class="state-view">
+      <div class="state-icon">&#x1F4E1;</div>
+      <div class="state-text">{{ fatalErrorText }}</div>
+      <div class="state-sub">{{ fatalErrorSub }}</div>
+      <q-btn rounded unelevated color="grey-8" text-color="white" :label="$t('BTN_RETRY')" @click="restartLoading" />
     </div>
 
-    <!-- Error -->
-    <div v-else-if="sessionError" class="state-view">
-      <div class="state-icon">:|</div>
-      <div class="state-text">{{ $t('MSG_SOMETHING_WRONG') }}</div>
-      <div class="state-sub">{{ sessionError }}</div>
-      <q-btn rounded unelevated color="grey-8" text-color="white" :label="$t('BTN_RETRY')" @click="fetchSession" />
-    </div>
-
-    <!-- Empty / Processing -->
-    <div v-else-if="sessionItems.length === 0" class="state-view">
-      <q-spinner-puff color="grey-6" size="60px" />
-      <div class="state-text">{{ brand.messages.processing || $t('MSG_PROCESSING_PHOTOS') }}</div>
-      <div class="state-sub">{{ $t('MSG_AUTO_REFRESH_SECONDS') }}</div>
-    </div>
-
-    <!-- Gallery -->
-    <div v-else class="gallery-view">
+    <!-- Skeleton / Progressive gallery (always rendered unless fatal error) -->
+    <div v-show="loadingPhase !== 'error_fatal'" class="gallery-view">
 
       <!-- Header -->
       <header class="gallery-header">
-        <img v-if="brand.logo.image_url" :src="brand.logo.image_url" :style="{width:brand.logo.width+'px',height:brand.logo.height+'px'}" class="header-logo" />
-        <div class="header-brand">
-          <div v-if="brand.partner_name" class="header-partner">{{ brand.partner_name }}</div>
-          <div class="header-name">{{ brand.brand_name }}</div>
-        </div>
+        <template v-if="brandLoaded">
+          <img v-if="brand.logo.image_url" :src="brand.logo.image_url" :style="{width:brand.logo.width+'px',height:brand.logo.height+'px'}" class="header-logo" />
+          <div class="header-brand">
+            <div v-if="brand.partner_name" class="header-partner">{{ brand.partner_name }}</div>
+            <div class="header-name">{{ brand.brand_name }}</div>
+          </div>
+        </template>
+        <template v-else>
+          <div class="header-logo-placeholder shimmer" style="width:48px;height:48px;border-radius:12px;flex-shrink:0;" />
+          <div class="header-brand">
+            <div class="header-partner">
+              <span class="shimmer" style="display:inline-block;width:120px;height:20px;border-radius:4px;" />
+            </div>
+            <div class="header-name">
+              <span class="shimmer" style="display:inline-block;width:80px;height:14px;border-radius:4px;" />
+            </div>
+          </div>
+        </template>
       </header>
 
-      <!-- Hero: collage/animation -->
-      <div v-if="heroItem" class="hero-section">
-        <img :src="mediaUrl(heroItem)" class="hero-image" @error="onImgError" />
-        <div class="hero-actions">
+      <!-- Hero section: collage/animation -->
+      <div class="hero-section">
+        <!-- Manifest not loaded yet → skeleton -->
+        <div v-if="!manifestLoaded" class="hero-skeleton shimmer" style="width:100%; aspect-ratio:1/1; border-radius:12px; border:4px solid #fff; box-sizing:border-box;" />
+        <!-- Manifest loaded, hero exists → real image with states -->
+        <template v-else-if="heroItem">
+          <img
+            v-show="getImageState(heroItem) !== 'placeholder'"
+            :src="mediaUrl(heroItem)"
+            :data-img-id="heroItem.id"
+            class="hero-image"
+            @load="onImgLoaded(heroItem)"
+            @error="onImgError(heroItem)"
+          />
+          <div v-if="getImageState(heroItem) === 'loading'" class="img-placeholder shimmer">
+            <q-spinner-dots color="grey-5" size="32px" />
+          </div>
+          <div v-else-if="getImageState(heroItem) === 'placeholder'" class="img-placeholder">
+            <span>{{ $t('MSG_IMAGE_SYNCING') }}</span>
+            <q-btn size="sm" flat dense :label="$t('BTN_RETRY')" @click="retryImage(heroItem)" />
+          </div>
+        </template>
+        <!-- Manifest loaded, no hero (shouldn't happen normally) -->
+        <div v-else class="hero-skeleton" style="width:100%; aspect-ratio:1/1; border-radius:12px; border:4px solid #fff; box-sizing:border-box; display:flex;align-items:center;justify-content:center;color:#6B8299;">
+          <span>{{ $t('MSG_NO_HERO') }}</span>
+        </div>
+
+        <div class="hero-actions" v-if="heroItem">
           <button class="btn-primary" @click="downloadMedia(heroItem)">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg> {{ brand.messages.download_photo || $t('BTN_DOWNLOAD') }}
           </button>
         </div>
+        <div v-else-if="manifestLoaded" class="hero-actions">
+          <div class="shimmer" style="width:180px;height:44px;border-radius:24px;" />
+        </div>
       </div>
 
       <!-- Banner -->
-      <div v-if="brand.banner.enabled" class="banner-section">
+      <div v-if="brandLoaded && brand.banner.enabled" class="banner-section">
         <img v-if="brand.banner.image_url" :src="brand.banner.image_url" class="banner-image" />
         <div class="banner-content">
           <div class="banner-text">{{ brand.banner.text }}</div>
@@ -54,26 +81,53 @@
       </div>
 
       <!-- Individual photos strip -->
-       <div v-if="stripItems.length > 0" class="strip-section">
-         <div class="section-label">{{ brand.messages.more_photos || $t('LABEL_MORE_PHOTOS') }}</div>
-         <div class="strip-scroll">
-           <div v-for="item in stripItems" :key="item.id" class="strip-card">
-             <div v-if="item.media_type === 'video'" class="strip-video-thumb">
-               <img v-if="item.thumbnail" :src="'./' + item.thumbnail" class="strip-image" loading="lazy" @error="(e: Event) => { (e.target as HTMLElement).style.display='none' }" />
-               <div class="strip-video-icon">
-                 <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-               </div>
-             </div>
-             <img v-else :src="mediaUrl(item)" class="strip-image" loading="lazy" @error="onImgError" />
-             <button class="strip-download" @click="downloadMedia(item)">
-               <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
-             </button>
-           </div>
-         </div>
-       </div>
+      <div class="strip-section">
+        <div class="section-label">{{ brand.messages.more_photos || $t('LABEL_MORE_PHOTOS') }}</div>
+
+        <!-- Skeleton placeholder strips -->
+        <div v-if="!manifestLoaded" class="strip-scroll">
+          <div v-for="n in 4" :key="'skel-'+n" class="strip-card">
+            <div class="shimmer" style="width:116px;height:116px;border-radius:8px;" />
+          </div>
+        </div>
+
+        <!-- Real strips -->
+        <div v-else-if="stripItems.length > 0" class="strip-scroll">
+          <div v-for="item in stripItems" :key="item.id" class="strip-card">
+            <!-- Video thumbnail -->
+            <div v-if="item.media_type === 'video'" class="strip-video-thumb">
+              <img v-if="item.thumbnail" :src="'./' + item.thumbnail" class="strip-image" loading="lazy" @error="(e: Event) => { (e.target as HTMLElement).style.display='none' }" />
+              <div class="strip-video-icon">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+              </div>
+            </div>
+            <!-- Image with states -->
+            <template v-else>
+              <div v-if="getImageState(item) === 'loading'" class="img-placeholder shimmer" style="width:116px;height:116px;border-radius:8px;" />
+              <div v-else-if="getImageState(item) === 'placeholder'" class="img-placeholder" style="width:116px;height:116px;border-radius:8px;flex-direction:column;font-size:0.7rem;text-align:center;padding:8px;box-sizing:border-box;">
+                <span>{{ $t('MSG_IMAGE_SYNCING_SHORT') }}</span>
+                <q-btn size="xs" flat dense :label="$t('BTN_RETRY')" @click="retryImage(item)" style="margin-top:4px;" />
+              </div>
+              <img v-show="getImageState(item) !== 'placeholder'" :src="mediaUrl(item)" :data-img-id="item.id" class="strip-image" loading="lazy" @load="onImgLoaded(item)" @error="onImgError(item)" />
+            </template>
+            <button class="strip-download" @click="downloadMedia(item)">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Manifest loaded but no strip items -->
+        <div v-else class="state-sub" style="padding:12px 4px;">{{ $t('MSG_NO_ADDITIONAL_PHOTOS') }}</div>
+
+        <!-- Syncing indicator: still waiting for images -->
+        <div v-if="manifestLoaded && pendingImageCount > 0" class="sync-status">
+          <q-spinner-dots color="grey-5" size="16px" />
+          <span>{{ $t('MSG_IMAGES_STILL_SYNCING', { count: pendingImageCount }) }}</span>
+        </div>
+      </div>
 
       <!-- Share section -->
-      <div v-if="brand.share.enabled" class="share-section">
+      <div v-if="brandLoaded && brand.share.enabled" class="share-section">
         <div class="section-label">{{ brand.messages.share_cta || $t('BTN_SHARE') }}</div>
         <div class="share-actions">
           <button class="btn-primary btn-share" @click="shareNative">
@@ -96,13 +150,13 @@
 
       <!-- Footer -->
       <footer class="gallery-footer">
-        <div class="footer-social">
+        <div v-if="brandLoaded" class="footer-social">
           <a v-if="brand.social.facebook" :href="fixUrl(brand.social.facebook)" target="_blank" rel="noopener" class="footer-link" @click="trackEvent('social_click', { platform: 'facebook' })"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg></a>
           <a v-if="brand.social.instagram" :href="fixUrl(brand.social.instagram)" target="_blank" rel="noopener" class="footer-link" @click="trackEvent('social_click', { platform: 'instagram' })"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z"/></svg></a>
           <a v-if="brand.social.tiktok" :href="fixUrl(brand.social.tiktok)" target="_blank" rel="noopener" class="footer-link" @click="trackEvent('social_click', { platform: 'tiktok' })"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11 1.04-1.36 1.75-.21.51-.15 1.07-.14 1.61.24 1.64 1.82 3.02 3.5 2.87 1.12-.01 2.19-.66 2.77-1.61.19-.33.4-.67.41-1.06.1-1.79.06-3.57.07-5.36.01-4.03-.01-8.05.02-12.07z"/></svg></a>
           <a v-if="brand.social.website" :href="fixUrl(brand.social.website)" target="_blank" rel="noopener" class="footer-link" @click="trackEvent('social_click', { platform: 'website' })"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg></a>
         </div>
-        <div class="footer-text">{{ brand.footer_text }}</div>
+        <div class="footer-text">{{ brandLoaded ? brand.footer_text : '&nbsp;' }}</div>
       </footer>
 
     </div>
@@ -176,11 +230,35 @@ const DEFAULT_BRAND: BrandData = {
 }
 
 const brand = ref<BrandData>({ ...DEFAULT_BRAND })
+const brandLoaded = ref(false)
+
 const sessionItems = ref<SessionManifestItem[]>([])
-const sessionLoading = ref(true)
-const sessionError = ref<string | null>(null)
+const manifestLoaded = ref(false)
+const loadingPhase = ref<'skeleton' | 'retrying' | 'gallery' | 'error_fatal'>('skeleton')
+const retryCount = ref(0)
+const MAX_RETRIES = 20
 const copiedText = ref<string | null>(null)
 let refreshTimer: ReturnType<typeof setInterval> | null = null
+
+type ImageState = 'loading' | 'loaded' | 'placeholder'
+const imageStates = ref<Record<string, { state: ImageState; retries: number }>>({})
+const IMAGE_MAX_RETRIES = 3
+const IMAGE_RETRY_DELAYS = [2000, 5000, 10000]
+
+const fatalErrorText = ref('')
+const fatalErrorSub = ref('')
+
+const POLL_INTERVAL_MS = 3000
+
+function getImageState(item: SessionManifestItem): ImageState {
+  return imageStates.value[item.id]?.state ?? 'loading'
+}
+
+function initImageState(item: SessionManifestItem) {
+  if (!(item.id in imageStates.value)) {
+    imageStates.value[item.id] = { state: 'loading', retries: 0 }
+  }
+}
 
 const heroItem = computed(() => sessionItems.value.find(i => i.media_type === 'collage' || i.media_type === 'animation'))
 const stripItems = computed(() => {
@@ -190,6 +268,23 @@ const stripItems = computed(() => {
     if (a.media_type !== 'video' && b.media_type === 'video') return 1
     return 0
   })
+})
+
+const allImageItems = computed(() => {
+  const items: SessionManifestItem[] = []
+  if (heroItem.value) items.push(heroItem.value)
+  for (const item of stripItems.value) {
+    if (item.media_type !== 'video') items.push(item)
+  }
+  return items
+})
+
+const pendingImageCount = computed(() => {
+  if (!manifestLoaded.value) return 0
+  return allImageItems.value.filter(item => {
+    const s = imageStates.value[item.id]
+    return !s || s.state !== 'loaded'
+  }).length
 })
 
 async function loadBrand() {
@@ -202,22 +297,63 @@ async function loadBrand() {
       brand.value = { ...DEFAULT_BRAND, ...data, messages: { ...DEFAULT_BRAND.messages, ...(data.messages || {}) } }
     }
   } catch { /* brand.json not available, use defaults */ }
+  brandLoaded.value = true
 }
 
 async function fetchSession() {
   if (!sessionId.value) return
   try {
-    sessionError.value = null
     const resp = await fetch(`sessions/session_${sessionId.value}.json`)
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
-    sessionItems.value = await resp.json()
-    if (sessionItems.value.length > 0 && refreshTimer) { clearInterval(refreshTimer); refreshTimer = null }
-    trackEvent('page_view', { session_id: sessionId.value, item_count: sessionItems.value.length, brand_name: brand.value.brand_name })
+
+    if (resp.ok) {
+      const data = await resp.json()
+      if (Array.isArray(data) && data.length > 0) {
+        sessionItems.value = data
+        manifestLoaded.value = true
+        loadingPhase.value = 'gallery'
+        for (const item of allImageItems.value) initImageState(item)
+        if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null }
+        trackEvent('page_view', { session_id: sessionId.value, item_count: sessionItems.value.length, brand_name: brand.value.brand_name })
+        return
+      }
+
+      if (Array.isArray(data) && data.length === 0) {
+        loadingPhase.value = 'retrying'
+        retryCount.value++
+        return
+      }
+    }
+
+    if (resp.status === 404 || resp.status === 403) {
+      if (retryCount.value < MAX_RETRIES) {
+        loadingPhase.value = 'retrying'
+        retryCount.value++
+        fatalErrorText.value = 'Ảnh đang được đồng bộ lên máy chủ...'
+        fatalErrorSub.value = `Vui lòng đợi (đã thử ${retryCount.value}/${MAX_RETRIES} lần)`
+      } else {
+        loadingPhase.value = 'error_fatal'
+        fatalErrorText.value = 'Không thể tải ảnh'
+        fatalErrorSub.value = 'Ảnh vẫn đang được xử lý, vui lòng thử lại sau vài phút.'
+        trackEvent('session_error', { error: `HTTP ${resp.status}`, session_id: sessionId.value })
+        stopPolling()
+      }
+      return
+    }
+
+    throw new Error(`HTTP ${resp.status}`)
   } catch (err) {
-    sessionError.value = String(err)
-    trackEvent('session_error', { error: String(err), session_id: sessionId.value })
-  } finally {
-    sessionLoading.value = false
+    if (retryCount.value < MAX_RETRIES) {
+      loadingPhase.value = 'retrying'
+      retryCount.value++
+      fatalErrorText.value = 'Đang kết nối...'
+      fatalErrorSub.value = `Vui lòng đợi (đã thử ${retryCount.value}/${MAX_RETRIES} lần)`
+    } else {
+      loadingPhase.value = 'error_fatal'
+      fatalErrorText.value = 'Không thể kết nối'
+      fatalErrorSub.value = 'Vui lòng kiểm tra kết nối mạng và thử lại.'
+      trackEvent('session_error', { error: String(err), session_id: sessionId.value })
+      stopPolling()
+    }
   }
 }
 
@@ -225,8 +361,54 @@ function mediaUrl(item: SessionManifestItem): string {
   return `./${item.path}`
 }
 
-function onImgError(e: Event) {
-  (e.target as HTMLElement).style.display = 'none'
+function onImgLoaded(item: SessionManifestItem) {
+  imageStates.value[item.id] = { state: 'loaded', retries: 0 }
+}
+
+function onImgError(item: SessionManifestItem) {
+  const current = imageStates.value[item.id]
+  if (!current) return
+
+  const nextRetry = current.retries + 1
+
+  if (nextRetry <= IMAGE_MAX_RETRIES) {
+    imageStates.value[item.id] = { state: 'loading', retries: nextRetry }
+    const delay = IMAGE_RETRY_DELAYS[nextRetry - 1] || 10000
+    setTimeout(() => {
+      const el = document.querySelector(`img[data-img-id="${item.id}"]`) as HTMLImageElement | null
+      if (el) {
+        el.src = mediaUrl(item) + '?retry=' + Date.now()
+      }
+    }, delay)
+  } else {
+    imageStates.value[item.id] = { state: 'placeholder', retries: nextRetry }
+  }
+}
+
+function retryImage(item: SessionManifestItem) {
+  imageStates.value[item.id] = { state: 'loading', retries: 0 }
+  const el = document.querySelector(`img[data-img-id="${item.id}"]`) as HTMLImageElement | null
+  if (el) {
+    el.src = mediaUrl(item) + '?retry=' + Date.now()
+  }
+}
+
+function restartLoading() {
+  retryCount.value = 0
+  loadingPhase.value = 'skeleton'
+  manifestLoaded.value = false
+  sessionItems.value = []
+  imageStates.value = {}
+  if (!refreshTimer) {
+    void fetchSession()
+    refreshTimer = setInterval(() => {
+      if (!manifestLoaded.value) void fetchSession()
+    }, POLL_INTERVAL_MS)
+  }
+}
+
+function stopPolling() {
+  if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null }
 }
 
 async function downloadMedia(item: SessionManifestItem) {
@@ -286,11 +468,13 @@ onMounted(async () => {
   await loadBrand()
   if (sessionId.value) {
     void fetchSession()
-    refreshTimer = setInterval(() => { if (sessionItems.value.length === 0 && !sessionError.value) void fetchSession() }, 3000)
+    refreshTimer = setInterval(() => {
+      if (!manifestLoaded.value) void fetchSession()
+    }, POLL_INTERVAL_MS)
   }
 })
 
-onBeforeUnmount(() => { if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null } })
+onBeforeUnmount(() => { stopPolling() })
 </script>
 
 <style scoped>
@@ -311,9 +495,21 @@ onBeforeUnmount(() => { if (refreshTimer) { clearInterval(refreshTimer); refresh
   min-height: 100vh; gap: 12px; padding: 24px; text-align: center;
   background: #F0F4F8;
 }
-.state-icon { font-size: 64px; opacity: 0.2; color: #6B8299; }
+.state-icon { font-size: 64px; opacity: 0.6; }
 .state-text { font-size: 1rem; font-weight: 500; color: #2D2D2D; opacity: 0.7; }
 .state-sub { font-size: 0.8rem; opacity: 0.45; color: #6B8299; }
+
+/* ── Shimmer skeleton animation ── */
+
+.shimmer {
+  background: linear-gradient(90deg, #e2e8f0 25%, #f0f4f8 50%, #e2e8f0 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
 
 /* ── Gallery ── */
 
@@ -342,6 +538,15 @@ onBeforeUnmount(() => { if (refreshTimer) { clearInterval(refreshTimer); refresh
   border: 4px solid #fff; box-sizing: border-box;
 }
 .hero-actions { display: flex; justify-content: center; margin-top: 14px; }
+
+/* ── Image placeholder ── */
+
+.img-placeholder {
+  display: flex; align-items: center; justify-content: center;
+  background: #e8ecf1; border-radius: 12px;
+  min-height: 80px; color: #6B8299; font-size: 0.85rem;
+  gap: 8px; border: 4px solid #fff; box-sizing: border-box;
+}
 
 /* ── Buttons ── */
 
@@ -419,6 +624,15 @@ onBeforeUnmount(() => { if (refreshTimer) { clearInterval(refreshTimer); refresh
   box-shadow: 0 2px 8px rgba(0,0,0,0.08); transition: all .2s;
 }
 .strip-download:active { transform: scale(0.9); }
+
+/* ── Sync status ── */
+
+.sync-status {
+  display: flex; align-items: center; gap: 8px; justify-content: center;
+  padding: 10px 12px; margin-top: 12px;
+  background: rgba(255,255,255,0.6); border-radius: 10px;
+  font-size: 0.78rem; color: #6B8299;
+}
 
 /* ── Share ── */
 

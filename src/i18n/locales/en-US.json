@@ -28,5 +28,10 @@
   "BTN_SHARE": "Share with friends",
   "MSG_SHARE_TITLE": "Check out my photobooth photos!",
   "MSG_COPY_LINK": "Copy Link",
-  "LABEL_MORE_PHOTOS": "More Photos"
+  "LABEL_MORE_PHOTOS": "More Photos",
+  "MSG_IMAGE_SYNCING": "Syncing images to server...",
+  "MSG_IMAGE_SYNCING_SHORT": "Uploading...",
+  "MSG_NO_HERO": "No collage available",
+  "MSG_NO_ADDITIONAL_PHOTOS": "No additional photos",
+  "MSG_IMAGES_STILL_SYNCING": "{count} images still uploading, please wait..."
 }
