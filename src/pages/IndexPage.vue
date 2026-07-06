@@ -375,7 +375,7 @@ function onImgError(item: SessionManifestItem) {
     imageStates.value[item.id] = { state: 'loading', retries: nextRetry }
     const delay = IMAGE_RETRY_DELAYS[nextRetry - 1] || 10000
     setTimeout(() => {
-      const el = document.querySelector(`img[data-img-id="${item.id}"]`) as HTMLImageElement | null
+      const el = document.querySelector<HTMLImageElement>(`img[data-img-id="${item.id}"]`)
       if (el) {
         el.src = mediaUrl(item) + '?retry=' + Date.now()
       }
@@ -387,7 +387,7 @@ function onImgError(item: SessionManifestItem) {
 
 function retryImage(item: SessionManifestItem) {
   imageStates.value[item.id] = { state: 'loading', retries: 0 }
-  const el = document.querySelector(`img[data-img-id="${item.id}"]`) as HTMLImageElement | null
+  const el = document.querySelector<HTMLImageElement>(`img[data-img-id="${item.id}"]`)
   if (el) {
     el.src = mediaUrl(item) + '?retry=' + Date.now()
   }
