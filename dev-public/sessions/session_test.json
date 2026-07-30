@@ -1,0 +1,6 @@
+[
+  {"id":"h1","media_type":"collage","path":"sessions/test.jpg"},
+  {"id":"s1","media_type":"image","path":"sessions/test.jpg"},
+  {"id":"s2","media_type":"image","path":"sessions/test.jpg"},
+  {"id":"s3","media_type":"image","path":"sessions/test.jpg"}
+]

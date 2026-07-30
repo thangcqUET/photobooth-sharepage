@@ -56,6 +56,11 @@ export default defineConfig((ctx) => {
       // polyfillModulePreload: true,
       distDir: '../photobooth-app/src/web/sharepage/',
       extendViteConf(viteConf) {
+        // During dev, serve mock data from dev-public/ for local testing.
+        // Production build uses public/ which contains only real assets.
+        if (ctx.dev) {
+          viteConf.publicDir = 'dev-public'
+        }
         // relative public dir (otherwise assets would load from / always which is unlikely true for the download portal)
         // ref: https://github.com/quasarframework/quasar/discussions/14984#discussioncomment-4245661
         viteConf.base = ''
@@ -109,7 +114,7 @@ export default defineConfig((ctx) => {
 
     // Full list of options: https://v2.quasar.dev/quasar-cli-vite/quasar-config-file#devserver
     devServer: {
-      https: true,
+      https: false,
       open: true, // opens browser window automatically
       port: 8400,
       proxy: {

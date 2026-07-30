@@ -357,6 +357,11 @@ async function fetchSession() {
   }
 }
 
+function isIOS(): boolean {
+  return /iPad|iPhone|iPod/.test(navigator.userAgent)
+    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+}
+
 function mediaUrl(item: SessionManifestItem): string {
   return `./${item.path}`
 }
@@ -419,14 +424,16 @@ async function downloadMedia(item: SessionManifestItem) {
     const blob = await resp.blob()
     const file = new File([blob], item.path.split('/').pop() || 'photo.jpg', { type: blob.type || 'image/jpeg' })
 
-    if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+    if (isIOS() && navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
       await navigator.share({ files: [file] })
     } else {
       const a = document.createElement('a')
       a.href = URL.createObjectURL(blob)
       a.download = file.name
+      document.body.appendChild(a)
       a.click()
-      URL.revokeObjectURL(a.href)
+      document.body.removeChild(a)
+      setTimeout(() => URL.revokeObjectURL(a.href), 3000)
     }
   } catch {
     window.open(url, '_blank')

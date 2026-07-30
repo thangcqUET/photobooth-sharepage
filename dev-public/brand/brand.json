@@ -1,0 +1,10 @@
+{
+  "brand_name": "Mộc Photobooth",
+  "partner_name": "Test Partner",
+  "logo": {"image_url":"","width":48,"height":48},
+  "banner": {"enabled":false,"image_url":"","text":"","cta_text":"","link":""},
+  "share": {"enabled":true,"title":"Xem ảnh của tôi!","text":"Ghé Mộc Photobooth nhé!","show_facebook":true,"show_messenger":false},
+  "social": {"facebook":"","instagram":"","tiktok":"","website":""},
+  "footer_text": "Test Build",
+  "messages": {}
+}
