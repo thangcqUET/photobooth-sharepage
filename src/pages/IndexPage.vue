@@ -62,9 +62,9 @@
         </div>
 
         <div class="hero-actions" v-if="heroItem">
-          <button class="btn-primary" @click="downloadMedia(heroItem)">
+          <a class="btn-primary" :href="mediaUrl(heroItem)" :download="downloadName(heroItem)" @click="onDownloadClick($event, heroItem)">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg> {{ brand.messages.download_photo || $t('BTN_DOWNLOAD') }}
-          </button>
+          </a>
         </div>
         <div v-else-if="manifestLoaded" class="hero-actions">
           <div class="shimmer" style="width:180px;height:44px;border-radius:24px;" />
@@ -110,9 +110,10 @@
               </div>
               <img v-show="getImageState(item) !== 'placeholder'" :src="mediaUrl(item)" :data-img-id="item.id" class="strip-image" loading="lazy" @load="onImgLoaded(item)" @error="onImgError(item)" />
             </template>
-            <button class="strip-download" @click="downloadMedia(item)">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
-            </button>
+            <a class="strip-download-btn" :href="mediaUrl(item)" :download="downloadName(item)" @click="onDownloadClick($event, item)">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+              {{ $t('BTN_DOWNLOAD') }}
+            </a>
           </div>
         </div>
 
@@ -357,13 +358,38 @@ async function fetchSession() {
   }
 }
 
+function mediaUrl(item: SessionManifestItem): string {
+  return `./${item.path}`
+}
+
+function downloadName(item: SessionManifestItem): string {
+  return item.path.split('/').pop() || 'photo.jpg'
+}
+
 function isIOS(): boolean {
   return /iPad|iPhone|iPod/.test(navigator.userAgent)
     || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
 }
 
-function mediaUrl(item: SessionManifestItem): string {
-  return `./${item.path}`
+/** iOS: keep the share sheet (save to Photos); other platforms let the real <a download> handle it. */
+function onDownloadClick(event: MouseEvent, item: SessionManifestItem) {
+  trackEvent('download_photo', { media_type: item.media_type, item_id: item.id })
+  if (!isIOS()) return
+  event.preventDefault()
+  void shareFile(mediaUrl(item), downloadName(item))
+}
+
+async function shareFile(url: string, name: string) {
+  try {
+    const resp = await fetch(url)
+    const blob = await resp.blob()
+    const file = new File([blob], name, { type: blob.type || 'image/jpeg' })
+    if (navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file] })
+      return
+    }
+  } catch { /* fall through */ }
+  window.open(url, '_blank')
 }
 
 function onImgLoaded(item: SessionManifestItem) {
@@ -414,30 +440,6 @@ function restartLoading() {
 
 function stopPolling() {
   if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null }
-}
-
-async function downloadMedia(item: SessionManifestItem) {
-  trackEvent('download_photo', { media_type: item.media_type, item_id: item.id })
-  const url = mediaUrl(item)
-  try {
-    const resp = await fetch(url)
-    const blob = await resp.blob()
-    const file = new File([blob], item.path.split('/').pop() || 'photo.jpg', { type: blob.type || 'image/jpeg' })
-
-    if (isIOS() && navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
-      await navigator.share({ files: [file] })
-    } else {
-      const a = document.createElement('a')
-      a.href = URL.createObjectURL(blob)
-      a.download = file.name
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      setTimeout(() => URL.revokeObjectURL(a.href), 3000)
-    }
-  } catch {
-    window.open(url, '_blank')
-  }
 }
 
 async function shareNative() {
@@ -562,7 +564,7 @@ onBeforeUnmount(() => { stopPolling() })
   padding: 12px 28px; border: none; border-radius: 24px;
   background: linear-gradient(135deg, #A9CCE3, #FED7C3);
   color: #2D2D2D; font-size: 0.95rem; font-weight: 600;
-  cursor: pointer; transition: all .2s;
+  cursor: pointer; transition: all .2s; text-decoration: none;
   box-shadow: 0 2px 16px rgba(169,204,227,0.35);
 }
 .btn-primary svg { flex-shrink: 0; }
@@ -624,13 +626,15 @@ onBeforeUnmount(() => { stopPolling() })
   display: flex; align-items: center; justify-content: center;
   color: rgba(255,255,255,0.9); z-index: 1;
 }
-.strip-download {
-  position: absolute; bottom: -10px; right: -6px; width: 30px; height: 30px;
-  border: 2px solid #fff; border-radius: 50%; background: #A9CCE3; color: #2D2D2D;
-  font-size: 13px; cursor: pointer; display: flex; align-items: center; justify-content: center;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.08); transition: all .2s;
+.strip-download-btn {
+  margin-top: 8px; width: 100%;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 10px 8px; border: none; border-radius: 20px;
+  background: linear-gradient(135deg, #A9CCE3, #FED7C3); color: #2D2D2D;
+  font-size: 0.85rem; font-weight: 700; cursor: pointer; transition: all .2s; text-decoration: none;
+  box-shadow: 0 2px 12px rgba(169,204,227,0.3);
 }
-.strip-download:active { transform: scale(0.9); }
+.strip-download-btn:active { opacity: 0.85; transform: scale(0.97); }
 
 /* ── Sync status ── */
 

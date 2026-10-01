@@ -10,6 +10,10 @@ const routes: RouteRecordRaw[] = [
         component: () => import('pages/IndexPage.vue'),
         props: (route) => ({ url: route.query.url }),
       },
+      {
+        path: 'event',
+        component: () => import('pages/EventPage.vue'),
+      },
     ],
   },
 
