@@ -34,40 +34,43 @@
         </template>
       </header>
 
-      <!-- Hero section: collage/animation -->
-      <div class="hero-section">
-        <!-- Manifest not loaded yet → skeleton -->
-        <div v-if="!manifestLoaded" class="hero-skeleton shimmer" style="width:100%; aspect-ratio:1/1; border-radius:12px; border:4px solid #fff; box-sizing:border-box;" />
-        <!-- Manifest loaded, hero exists → real image with states -->
-        <template v-else-if="heroItem">
-          <img
-            v-show="getImageState(heroItem) !== 'placeholder'"
-            :src="mediaUrl(heroItem)"
-            :data-img-id="heroItem.id"
-            class="hero-image"
-            @load="onImgLoaded(heroItem)"
-            @error="onImgError(heroItem)"
-          />
-          <div v-if="getImageState(heroItem) === 'loading'" class="img-placeholder shimmer">
-            <q-spinner-dots color="grey-5" size="32px" />
-          </div>
-          <div v-else-if="getImageState(heroItem) === 'placeholder'" class="img-placeholder">
-            <span>{{ $t('MSG_IMAGE_SYNCING') }}</span>
-            <q-btn size="sm" flat dense :label="$t('BTN_RETRY')" @click="retryImage(heroItem)" />
-          </div>
-        </template>
-        <!-- Manifest loaded, no hero (shouldn't happen normally) -->
-        <div v-else class="hero-skeleton" style="width:100%; aspect-ratio:1/1; border-radius:12px; border:4px solid #fff; box-sizing:border-box; display:flex;align-items:center;justify-content:center;color:#6B8299;">
-          <span>{{ $t('MSG_NO_HERO') }}</span>
+      <!-- Collage / animation blocks (only when present in the manifest) -->
+      <div v-if="!manifestLoaded || collageItems.length > 0" class="hero-section">
+        <div v-if="!manifestLoaded" class="hero-block">
+          <div class="hero-skeleton shimmer" style="width:100%; aspect-ratio:1/1; border-radius:12px; border:4px solid #fff; box-sizing:border-box;" />
         </div>
 
-        <div class="hero-actions" v-if="heroItem">
-          <a class="btn-primary" :href="mediaUrl(heroItem)" :download="downloadName(heroItem)" @click="onDownloadClick($event, heroItem)">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg> {{ brand.messages.download_photo || $t('BTN_DOWNLOAD') }}
-          </a>
-        </div>
-        <div v-else-if="manifestLoaded" class="hero-actions">
-          <div class="shimmer" style="width:180px;height:44px;border-radius:24px;" />
+        <div v-for="item in collageItems" :key="item.id" class="hero-block">
+          <video
+            v-if="item.media_type === 'video' || item.media_type === 'animation'"
+            :src="mediaUrl(item)"
+            controls
+            playsinline
+            preload="metadata"
+            class="hero-video"
+          />
+          <template v-else>
+            <img
+              v-show="getImageState(item) !== 'placeholder'"
+              :src="mediaUrl(item)"
+              :data-img-id="item.id"
+              class="hero-image"
+              @load="onImgLoaded(item)"
+              @error="onImgError(item)"
+            />
+            <div v-if="getImageState(item) === 'loading'" class="img-placeholder shimmer">
+              <q-spinner-dots color="grey-5" size="32px" />
+            </div>
+            <div v-else-if="getImageState(item) === 'placeholder'" class="img-placeholder">
+              <span>{{ $t('MSG_IMAGE_SYNCING') }}</span>
+              <q-btn size="sm" flat dense :label="$t('BTN_RETRY')" @click="retryImage(item)" />
+            </div>
+          </template>
+          <div class="hero-actions">
+            <a class="btn-primary" :href="mediaUrl(item)" :download="downloadName(item)" @click="onDownloadClick($event, item)">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg> {{ brand.messages.download_photo || $t('BTN_DOWNLOAD') }}
+            </a>
+          </div>
         </div>
       </div>
 
@@ -85,15 +88,15 @@
         <div class="section-label">{{ brand.messages.more_photos || $t('LABEL_MORE_PHOTOS') }}</div>
 
         <!-- Skeleton placeholder strips -->
-        <div v-if="!manifestLoaded" class="strip-scroll">
-          <div v-for="n in 4" :key="'skel-'+n" class="strip-card">
-            <div class="shimmer" style="width:116px;height:116px;border-radius:8px;" />
+        <div v-if="!manifestLoaded" class="photo-grid">
+          <div v-for="n in 4" :key="'skel-'+n" class="photo-card">
+            <div class="shimmer" style="width:100%;aspect-ratio:1;border-radius:8px;" />
           </div>
         </div>
 
-        <!-- Real strips -->
-        <div v-else-if="stripItems.length > 0" class="strip-scroll">
-          <div v-for="item in stripItems" :key="item.id" class="strip-card">
+        <!-- Real photos -->
+        <div v-else-if="stripItems.length > 0" class="photo-grid">
+          <div v-for="item in stripItems" :key="item.id" class="photo-card">
             <!-- Video thumbnail -->
             <div v-if="item.media_type === 'video'" class="strip-video-thumb">
               <img v-if="item.thumbnail" :src="'./' + item.thumbnail" class="strip-image" loading="lazy" @error="(e: Event) => { (e.target as HTMLElement).style.display='none' }" />
@@ -103,8 +106,8 @@
             </div>
             <!-- Image with states -->
             <template v-else>
-              <div v-if="getImageState(item) === 'loading'" class="img-placeholder shimmer" style="width:116px;height:116px;border-radius:8px;" />
-              <div v-else-if="getImageState(item) === 'placeholder'" class="img-placeholder" style="width:116px;height:116px;border-radius:8px;flex-direction:column;font-size:0.7rem;text-align:center;padding:8px;box-sizing:border-box;">
+              <div v-if="getImageState(item) === 'loading'" class="img-placeholder shimmer" style="width:100%;aspect-ratio:1;border-radius:8px;" />
+              <div v-else-if="getImageState(item) === 'placeholder'" class="img-placeholder" style="width:100%;aspect-ratio:1;border-radius:8px;flex-direction:column;font-size:0.7rem;text-align:center;padding:8px;box-sizing:border-box;">
                 <span>{{ $t('MSG_IMAGE_SYNCING_SHORT') }}</span>
                 <q-btn size="xs" flat dense :label="$t('BTN_RETRY')" @click="retryImage(item)" style="margin-top:4px;" />
               </div>
@@ -261,7 +264,7 @@ function initImageState(item: SessionManifestItem) {
   }
 }
 
-const heroItem = computed(() => sessionItems.value.find(i => i.media_type === 'collage' || i.media_type === 'animation'))
+const collageItems = computed(() => sessionItems.value.filter(i => i.media_type === 'collage' || i.media_type === 'animation'))
 const stripItems = computed(() => {
   const items = sessionItems.value.filter(i => i.media_type !== 'collage' && i.media_type !== 'animation')
   return [...items].sort((a, b) => {
@@ -271,14 +274,9 @@ const stripItems = computed(() => {
   })
 })
 
-const allImageItems = computed(() => {
-  const items: SessionManifestItem[] = []
-  if (heroItem.value) items.push(heroItem.value)
-  for (const item of stripItems.value) {
-    if (item.media_type !== 'video') items.push(item)
-  }
-  return items
-})
+const allImageItems = computed(() =>
+  sessionItems.value.filter(i => i.media_type !== 'video' && i.media_type !== 'animation'),
+)
 
 const pendingImageCount = computed(() => {
   if (!manifestLoaded.value) return 0
@@ -541,7 +539,13 @@ onBeforeUnmount(() => { stopPolling() })
 /* ── Hero ── */
 
 .hero-section { margin-bottom: 20px; }
+.hero-block + .hero-block { margin-top: 20px; }
 .hero-image {
+  width: 100%; display: block; border-radius: 12px;
+  box-shadow: 0 4px 32px rgba(169,204,227,0.2);
+  border: 4px solid #fff; box-sizing: border-box;
+}
+.hero-video {
   width: 100%; display: block; border-radius: 12px;
   box-shadow: 0 4px 32px rgba(169,204,227,0.2);
   border: 4px solid #fff; box-sizing: border-box;
@@ -598,20 +602,17 @@ onBeforeUnmount(() => { stopPolling() })
   margin-bottom: 10px; padding-left: 4px; color: #6B8299;
   text-transform: uppercase;
 }
-.strip-scroll {
-  display: flex; gap: 10px; overflow-x: auto; overflow-y: hidden;
-  scroll-snap-type: x mandatory;
-  -webkit-overflow-scrolling: touch; padding: 0 2px 14px 2px;
+.photo-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px;
 }
-.strip-scroll::-webkit-scrollbar { display: none; }
-.strip-card {
-  flex: 0 0 130px; scroll-snap-align: start; position: relative;
+.photo-card {
+  position: relative;
   background: #fff; border-radius: 12px; box-shadow: 0 2px 12px rgba(169,204,227,0.12);
-  padding: 7px; overflow: visible;
+  padding: 7px; display: flex; flex-direction: column;
 }
-.strip-image { width: 116px; height: 116px; object-fit: cover; border-radius: 8px; display: block; }
+.strip-image { width: 100%; height: auto; aspect-ratio: 1; object-fit: cover; border-radius: 8px; display: block; }
 .strip-video-thumb {
-  width: 116px; height: 116px; border-radius: 8px; position: relative;
+  width: 100%; aspect-ratio: 1; border-radius: 8px; position: relative;
   display: flex; align-items: center; justify-content: center;
   background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
   overflow: hidden;
