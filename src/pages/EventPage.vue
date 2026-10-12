@@ -98,7 +98,7 @@
                 <q-btn size="xs" flat dense label="Thử lại" @click="retryImage(repFor(session))" />
               </div>
               <img
-                v-show="getImageState(repFor(session)) !== 'placeholder'"
+                v-show="getImageState(repFor(session)) === 'loaded'"
                 :src="mediaUrl(repFor(session))"
                 :data-img-id="repFor(session).id"
                 class="collage-media"
@@ -120,6 +120,9 @@
             </a>
             <button class="btn-secondary" @click="toggleDetails(session.job_identifier)">
               {{ isExpanded(session.job_identifier) ? 'Thu gọn' : `Xem chi tiết (${session.items.length})` }}
+            </button>
+            <button v-if="originalsFor(session).length > 0" class="btn-secondary" @click="toggleOriginals(session.job_identifier)">
+              {{ isOriginalsExpanded(session.job_identifier) ? 'Thu gọn' : `Ảnh gốc (${originalsFor(session).length})` }}
             </button>
           </div>
 
@@ -143,7 +146,7 @@
                   <q-btn size="xs" flat dense label="Thử lại" @click="retryImage(item)" />
                 </div>
                 <img
-                  v-show="getImageState(item) !== 'placeholder'"
+                  v-show="getImageState(item) === 'loaded'"
                   :src="mediaUrl(item)"
                   :data-img-id="item.id"
                   class="detail-media"
@@ -153,6 +156,40 @@
                 />
               </template>
               <a class="btn-download btn-download-small" :href="mediaUrl(item)" :download="downloadName(item)" @click="onDownloadClick($event, item)">
+                <DownloadIcon /> Tải
+              </a>
+            </div>
+          </div>
+
+          <!-- Originals: raw camera files of the session -->
+          <div v-if="isOriginalsExpanded(session.job_identifier)" class="details-grid">
+            <div v-for="item in originalsFor(session)" :key="'orig-' + item.id" class="detail-card">
+              <video
+                v-if="item.media_type === 'video' || item.media_type === 'animation'"
+                :src="originalUrl(item)"
+                controls
+                muted
+                playsinline
+                preload="metadata"
+                class="detail-media"
+              />
+              <template v-else>
+                <div v-if="getOrigState(item) === 'loading'" class="img-placeholder shimmer" />
+                <div v-else-if="getOrigState(item) === 'placeholder'" class="img-placeholder">
+                  <span>Đang đồng bộ...</span>
+                  <q-btn size="xs" flat dense label="Thử lại" @click="retryOrig(item)" />
+                </div>
+                <img
+                  v-show="getOrigState(item) === 'loaded'"
+                  :src="originalUrl(item)"
+                  :data-orig-id="item.id"
+                  class="detail-media"
+                  loading="lazy"
+                  @load="onOrigLoaded(item)"
+                  @error="onOrigError(item)"
+                />
+              </template>
+              <a class="btn-download btn-download-small" :href="originalUrl(item)" :download="originalDownloadName(item)" @click="onOrigDownloadClick($event, item)">
                 <DownloadIcon /> Tải
               </a>
             </div>
@@ -203,6 +240,9 @@ function fixUrl(url: string): string {
 
 interface EventManifestItem extends ZipItem {
   urls?: string[]
+  original_path?: string
+  original_size?: number
+  original_urls?: string[]
 }
 
 interface EventManifestSession {
@@ -252,6 +292,7 @@ const fatalErrorText = ref('')
 const fatalErrorSub = ref('')
 
 const expanded = ref<Record<string, boolean>>({})
+const expandedOriginals = ref<Record<string, boolean>>({})
 
 type ZipPartState = { state: 'idle' | 'building' | 'ready'; progress: number; url?: string; filename?: string }
 const zipState = ref<Record<number, ZipPartState>>({})
@@ -283,6 +324,18 @@ function isExpanded(id: string): boolean {
 
 function toggleDetails(id: string) {
   expanded.value[id] = !expanded.value[id]
+}
+
+function originalsFor(session: EventManifestSession): EventManifestItem[] {
+  return session.items.filter((i) => !!i.original_path)
+}
+
+function isOriginalsExpanded(id: string): boolean {
+  return expandedOriginals.value[id] === true
+}
+
+function toggleOriginals(id: string) {
+  expandedOriginals.value[id] = !expandedOriginals.value[id]
 }
 
 function repFor(session: EventManifestSession): EventManifestItem {
@@ -342,6 +395,7 @@ async function fetchEvent() {
         manifestLoaded.value = true
         loadingPhase.value = 'gallery'
         for (const item of items) initImageState(item)
+        for (const item of items) initOrigState(item)
         if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null }
         void ensureSizes(items as ZipItem[])
         return
@@ -384,11 +438,26 @@ async function fetchEvent() {
 }
 
 function mediaUrl(item: EventManifestItem): string {
-  return `./${item.path}`
+  if (item.path) return `./${item.path}`
+  return item.urls?.[0] || ''
 }
 
 function downloadName(item: EventManifestItem): string {
-  return item.path.split('/').pop() || `moc-${item.id}.jpg`
+  const source = item.path || item.urls?.[0] || ''
+  const base = source.split('?')[0] ?? ''
+  return base.split('/').pop() || `moc-${item.id}.jpg`
+}
+
+function withCacheBust(url: string): string {
+  return url + (url.includes('?') ? '&' : '?') + 'retry=' + Date.now()
+}
+
+function originalUrl(item: EventManifestItem): string {
+  return `./${item.original_path}`
+}
+
+function originalDownloadName(item: EventManifestItem): string {
+  return item.original_path?.split('/').pop() || downloadName(item)
 }
 
 function isIOS(): boolean {
@@ -401,6 +470,12 @@ function onDownloadClick(event: MouseEvent, item: EventManifestItem) {
   if (!isIOS()) return
   event.preventDefault()
   void shareFile(mediaUrl(item), downloadName(item))
+}
+
+function onOrigDownloadClick(event: MouseEvent, item: EventManifestItem) {
+  if (!isIOS()) return
+  event.preventDefault()
+  void shareFile(originalUrl(item), originalDownloadName(item))
 }
 
 async function shareFile(url: string, name: string) {
@@ -457,7 +532,7 @@ function onImgError(item: EventManifestItem) {
     const delay = IMAGE_RETRY_DELAYS[nextRetry - 1] || 10000
     setTimeout(() => {
       const el = document.querySelector<HTMLImageElement>(`img[data-img-id="${item.id}"]`)
-      if (el) el.src = mediaUrl(item) + '?retry=' + Date.now()
+      if (el) el.src = withCacheBust(mediaUrl(item))
     }, delay)
   } else {
     imageStates.value[item.id] = { state: 'placeholder', retries: nextRetry }
@@ -467,7 +542,48 @@ function onImgError(item: EventManifestItem) {
 function retryImage(item: EventManifestItem) {
   imageStates.value[item.id] = { state: 'loading', retries: 0 }
   const el = document.querySelector<HTMLImageElement>(`img[data-img-id="${item.id}"]`)
-  if (el) el.src = mediaUrl(item) + '?retry=' + Date.now()
+  if (el) el.src = withCacheBust(mediaUrl(item))
+}
+
+function getOrigState(item: EventManifestItem): ImageState {
+  return imageStates.value['orig:' + item.id]?.state ?? 'loading'
+}
+
+function initOrigState(item: EventManifestItem) {
+  if (!item.original_path) return
+  const key = 'orig:' + item.id
+  if (!(key in imageStates.value)) {
+    imageStates.value[key] = { state: 'loading', retries: 0 }
+  }
+}
+
+function onOrigLoaded(item: EventManifestItem) {
+  imageStates.value['orig:' + item.id] = { state: 'loaded', retries: 0 }
+}
+
+function onOrigError(item: EventManifestItem) {
+  const key = 'orig:' + item.id
+  const current = imageStates.value[key]
+  if (!current) return
+
+  const nextRetry = current.retries + 1
+
+  if (nextRetry <= IMAGE_MAX_RETRIES) {
+    imageStates.value[key] = { state: 'loading', retries: nextRetry }
+    const delay = IMAGE_RETRY_DELAYS[nextRetry - 1] || 10000
+    setTimeout(() => {
+      const el = document.querySelector<HTMLImageElement>(`img[data-orig-id="${item.id}"]`)
+      if (el) el.src = withCacheBust(originalUrl(item))
+    }, delay)
+  } else {
+    imageStates.value[key] = { state: 'placeholder', retries: nextRetry }
+  }
+}
+
+function retryOrig(item: EventManifestItem) {
+  imageStates.value['orig:' + item.id] = { state: 'loading', retries: 0 }
+  const el = document.querySelector<HTMLImageElement>(`img[data-orig-id="${item.id}"]`)
+  if (el) el.src = withCacheBust(originalUrl(item))
 }
 
 function restartLoading() {

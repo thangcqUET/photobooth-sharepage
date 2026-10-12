@@ -51,7 +51,7 @@
           />
           <template v-else>
             <img
-              v-show="getImageState(item) !== 'placeholder'"
+              v-show="getImageState(item) === 'loaded'"
               :src="mediaUrl(item)"
               :data-img-id="item.id"
               class="hero-image"
@@ -111,7 +111,7 @@
                 <span>{{ $t('MSG_IMAGE_SYNCING_SHORT') }}</span>
                 <q-btn size="xs" flat dense :label="$t('BTN_RETRY')" @click="retryImage(item)" style="margin-top:4px;" />
               </div>
-              <img v-show="getImageState(item) !== 'placeholder'" :src="mediaUrl(item)" :data-img-id="item.id" class="strip-image" loading="lazy" @load="onImgLoaded(item)" @error="onImgError(item)" />
+              <img v-show="getImageState(item) === 'loaded'" :src="mediaUrl(item)" :data-img-id="item.id" class="strip-image" loading="lazy" @load="onImgLoaded(item)" @error="onImgError(item)" />
             </template>
             <a class="strip-download-btn" :href="mediaUrl(item)" :download="downloadName(item)" @click="onDownloadClick($event, item)">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
@@ -127,6 +127,39 @@
         <div v-if="manifestLoaded && pendingImageCount > 0" class="sync-status">
           <q-spinner-dots color="grey-5" size="16px" />
           <span>{{ $t('MSG_IMAGES_STILL_SYNCING', { count: pendingImageCount }) }}</span>
+        </div>
+      </div>
+
+      <!-- Original photos -->
+      <div v-if="manifestLoaded && originalItems.length > 0" class="originals-section">
+        <div class="section-label">{{ $t('LABEL_ORIGINAL_PHOTOS') }}</div>
+        <div class="photo-grid">
+          <div v-for="item in originalItems" :key="'orig-' + item.id" class="photo-card">
+            <video
+              v-if="item.media_type === 'video' || item.media_type === 'animation'"
+              :src="originalUrl(item)"
+              controls
+              playsinline
+              preload="metadata"
+              class="strip-image"
+            />
+            <template v-else>
+              <div v-if="getOrigState(item) === 'loading'" class="img-placeholder shimmer" style="width:100%;aspect-ratio:1;border-radius:8px;" />
+              <div v-else-if="getOrigState(item) === 'placeholder'" class="img-placeholder" style="width:100%;aspect-ratio:1;border-radius:8px;flex-direction:column;font-size:0.7rem;text-align:center;padding:8px;box-sizing:border-box;">
+                <span>{{ $t('MSG_IMAGE_SYNCING_SHORT') }}</span>
+                <q-btn size="xs" flat dense :label="$t('BTN_RETRY')" @click="retryOrig(item)" style="margin-top:4px;" />
+              </div>
+              <img v-show="getOrigState(item) === 'loaded'" :src="originalUrl(item)" :data-orig-id="item.id" class="strip-image" loading="lazy" @load="onOrigLoaded(item)" @error="onOrigError(item)" />
+            </template>
+            <a class="strip-download-btn" :href="originalUrl(item)" :download="originalDownloadName(item)" @click="onOrigDownloadClick($event, item)">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+              {{ $t('BTN_DOWNLOAD') }}
+            </a>
+          </div>
+        </div>
+        <div v-if="pendingOrigCount > 0" class="sync-status">
+          <q-spinner-dots color="grey-5" size="16px" />
+          <span>{{ $t('MSG_IMAGES_STILL_SYNCING', { count: pendingOrigCount }) }}</span>
         </div>
       </div>
 
@@ -209,6 +242,10 @@ interface SessionManifestItem {
   media_type: string
   path: string
   thumbnail?: string
+  urls?: string[]
+  original_path?: string
+  original_size?: number
+  original_urls?: string[]
 }
 
 interface BrandData {
@@ -286,6 +323,18 @@ const pendingImageCount = computed(() => {
   }).length
 })
 
+const originalItems = computed(() => sessionItems.value.filter(i => !!i.original_path))
+
+const pendingOrigCount = computed(() => {
+  if (!manifestLoaded.value) return 0
+  return originalItems.value
+    .filter(i => i.media_type !== 'video' && i.media_type !== 'animation')
+    .filter(item => {
+      const s = imageStates.value['orig:' + item.id]
+      return !s || s.state !== 'loaded'
+    }).length
+})
+
 async function loadBrand() {
   try {
     const resp = await fetch(`brand/brand.json?v=${Date.now()}`)
@@ -311,6 +360,7 @@ async function fetchSession() {
         manifestLoaded.value = true
         loadingPhase.value = 'gallery'
         for (const item of allImageItems.value) initImageState(item)
+        for (const item of originalItems.value) initOrigState(item)
         if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null }
         trackEvent('page_view', { session_id: sessionId.value, item_count: sessionItems.value.length, brand_name: brand.value.brand_name })
         return
@@ -357,11 +407,26 @@ async function fetchSession() {
 }
 
 function mediaUrl(item: SessionManifestItem): string {
-  return `./${item.path}`
+  if (item.path) return `./${item.path}`
+  return item.urls?.[0] || ''
 }
 
 function downloadName(item: SessionManifestItem): string {
-  return item.path.split('/').pop() || 'photo.jpg'
+  const source = item.path || item.urls?.[0] || ''
+  const base = source.split('?')[0] ?? ''
+  return base.split('/').pop() || 'photo.jpg'
+}
+
+function withCacheBust(url: string): string {
+  return url + (url.includes('?') ? '&' : '?') + 'retry=' + Date.now()
+}
+
+function originalUrl(item: SessionManifestItem): string {
+  return `./${item.original_path}`
+}
+
+function originalDownloadName(item: SessionManifestItem): string {
+  return item.original_path?.split('/').pop() || downloadName(item)
 }
 
 function isIOS(): boolean {
@@ -375,6 +440,13 @@ function onDownloadClick(event: MouseEvent, item: SessionManifestItem) {
   if (!isIOS()) return
   event.preventDefault()
   void shareFile(mediaUrl(item), downloadName(item))
+}
+
+function onOrigDownloadClick(event: MouseEvent, item: SessionManifestItem) {
+  trackEvent('download_photo', { media_type: item.media_type, item_id: item.id, original: true })
+  if (!isIOS()) return
+  event.preventDefault()
+  void shareFile(originalUrl(item), originalDownloadName(item))
 }
 
 async function shareFile(url: string, name: string) {
@@ -406,7 +478,7 @@ function onImgError(item: SessionManifestItem) {
     setTimeout(() => {
       const el = document.querySelector<HTMLImageElement>(`img[data-img-id="${item.id}"]`)
       if (el) {
-        el.src = mediaUrl(item) + '?retry=' + Date.now()
+        el.src = withCacheBust(mediaUrl(item))
       }
     }, delay)
   } else {
@@ -418,7 +490,51 @@ function retryImage(item: SessionManifestItem) {
   imageStates.value[item.id] = { state: 'loading', retries: 0 }
   const el = document.querySelector<HTMLImageElement>(`img[data-img-id="${item.id}"]`)
   if (el) {
-    el.src = mediaUrl(item) + '?retry=' + Date.now()
+    el.src = withCacheBust(mediaUrl(item))
+  }
+}
+
+function getOrigState(item: SessionManifestItem): ImageState {
+  return imageStates.value['orig:' + item.id]?.state ?? 'loading'
+}
+
+function initOrigState(item: SessionManifestItem) {
+  const key = 'orig:' + item.id
+  if (!(key in imageStates.value)) {
+    imageStates.value[key] = { state: 'loading', retries: 0 }
+  }
+}
+
+function onOrigLoaded(item: SessionManifestItem) {
+  imageStates.value['orig:' + item.id] = { state: 'loaded', retries: 0 }
+}
+
+function onOrigError(item: SessionManifestItem) {
+  const key = 'orig:' + item.id
+  const current = imageStates.value[key]
+  if (!current) return
+
+  const nextRetry = current.retries + 1
+
+  if (nextRetry <= IMAGE_MAX_RETRIES) {
+    imageStates.value[key] = { state: 'loading', retries: nextRetry }
+    const delay = IMAGE_RETRY_DELAYS[nextRetry - 1] || 10000
+    setTimeout(() => {
+      const el = document.querySelector<HTMLImageElement>(`img[data-orig-id="${item.id}"]`)
+      if (el) {
+        el.src = withCacheBust(originalUrl(item))
+      }
+    }, delay)
+  } else {
+    imageStates.value[key] = { state: 'placeholder', retries: nextRetry }
+  }
+}
+
+function retryOrig(item: SessionManifestItem) {
+  imageStates.value['orig:' + item.id] = { state: 'loading', retries: 0 }
+  const el = document.querySelector<HTMLImageElement>(`img[data-orig-id="${item.id}"]`)
+  if (el) {
+    el.src = withCacheBust(originalUrl(item))
   }
 }
 
@@ -597,6 +713,7 @@ onBeforeUnmount(() => { stopPolling() })
 /* ── Strip ── */
 
 .strip-section { margin-bottom: 24px; overflow: hidden; }
+.originals-section { margin-bottom: 24px; overflow: hidden; }
 .section-label {
   font-size: 0.8rem; font-weight: 600; letter-spacing: 0.5px;
   margin-bottom: 10px; padding-left: 4px; color: #6B8299;
