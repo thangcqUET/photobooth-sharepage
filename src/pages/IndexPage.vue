@@ -35,7 +35,7 @@
       </header>
 
       <!-- Collage / animation blocks (only when present in the manifest) -->
-      <div v-if="!manifestLoaded || collageItems.length > 0" class="hero-section">
+      <div v-if="!originalsOnly && (!manifestLoaded || collageItems.length > 0)" class="hero-section">
         <div v-if="!manifestLoaded" class="hero-block">
           <div class="hero-skeleton shimmer" style="width:100%; aspect-ratio:1/1; border-radius:12px; border:4px solid #fff; box-sizing:border-box;" />
         </div>
@@ -84,7 +84,7 @@
       </div>
 
       <!-- Individual photos strip -->
-      <div class="strip-section">
+      <div v-if="!originalsOnly" class="strip-section">
         <div class="section-label">{{ brand.messages.more_photos || $t('LABEL_MORE_PHOTOS') }}</div>
 
         <!-- Skeleton placeholder strips -->
@@ -246,6 +246,7 @@ interface SessionManifestItem {
   original_path?: string
   original_size?: number
   original_urls?: string[]
+  session_mode?: string
 }
 
 interface BrandData {
@@ -324,6 +325,16 @@ const pendingImageCount = computed(() => {
 })
 
 const originalItems = computed(() => sessionItems.value.filter(i => !!i.original_path))
+
+/**
+ * Selfbooth manifests only contain still captures. Show/download the camera
+ * originals there; collage/animation/video sessions keep the existing gallery.
+ */
+const originalsOnly = computed(
+  () =>
+    sessionItems.value.length > 0 &&
+    sessionItems.value.every(i => i.session_mode === 'selfbooth' && !!i.original_path),
+)
 
 const pendingOrigCount = computed(() => {
   if (!manifestLoaded.value) return 0
