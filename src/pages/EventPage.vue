@@ -80,7 +80,7 @@
       <template v-else>
         <div v-for="(session, si) in sessions" :key="session.job_identifier" class="session-card">
           <!-- Collage representative (lazy loaded) -->
-          <div class="collage-wrap">
+          <div v-if="!isExpanded(session.job_identifier)" class="collage-wrap">
             <video
               v-if="repFor(session).media_type === 'video'"
               :src="mediaUrl(repFor(session))"
@@ -92,20 +92,20 @@
               class="collage-media"
             />
             <template v-else>
-              <div v-if="getImageState(repFor(session)) === 'loading'" class="img-placeholder shimmer" />
-              <div v-else-if="getImageState(repFor(session)) === 'placeholder'" class="img-placeholder">
-                <span>Đang đồng bộ...</span>
-                <q-btn size="xs" flat dense label="Thử lại" @click="retryImage(repFor(session))" />
-              </div>
               <img
-                v-show="getImageState(repFor(session)) === 'loaded'"
                 :src="mediaUrl(repFor(session))"
                 :data-img-id="repFor(session).id"
                 class="collage-media"
+                :class="{ 'is-loaded': getImageState(repFor(session)) === 'loaded' }"
                 loading="lazy"
                 @load="onImgLoaded(repFor(session))"
                 @error="onImgError(repFor(session))"
               />
+              <div v-if="getImageState(repFor(session)) === 'loading'" class="img-placeholder shimmer collage-placeholder" />
+              <div v-else-if="getImageState(repFor(session)) === 'placeholder'" class="img-placeholder collage-placeholder">
+                <span>Đang đồng bộ...</span>
+                <q-btn size="xs" flat dense label="Thử lại" @click="retryImage(repFor(session))" />
+              </div>
             </template>
           </div>
 
@@ -140,20 +140,22 @@
                 class="detail-media"
               />
               <template v-else>
-                <div v-if="getImageState(item) === 'loading'" class="img-placeholder shimmer" />
-                <div v-else-if="getImageState(item) === 'placeholder'" class="img-placeholder">
-                  <span>Đang đồng bộ...</span>
-                  <q-btn size="xs" flat dense label="Thử lại" @click="retryImage(item)" />
+                <div class="detail-media-wrap">
+                  <img
+                    :src="mediaUrl(item)"
+                    :data-img-id="item.id"
+                    class="detail-media"
+                    :class="{ 'is-loaded': getImageState(item) === 'loaded' }"
+                    loading="lazy"
+                    @load="onImgLoaded(item)"
+                    @error="onImgError(item)"
+                  />
+                  <div v-if="getImageState(item) === 'loading'" class="img-placeholder shimmer detail-placeholder" />
+                  <div v-else-if="getImageState(item) === 'placeholder'" class="img-placeholder detail-placeholder">
+                    <span>Đang đồng bộ...</span>
+                    <q-btn size="xs" flat dense label="Thử lại" @click="retryImage(item)" />
+                  </div>
                 </div>
-                <img
-                  v-show="getImageState(item) === 'loaded'"
-                  :src="mediaUrl(item)"
-                  :data-img-id="item.id"
-                  class="detail-media"
-                  loading="lazy"
-                  @load="onImgLoaded(item)"
-                  @error="onImgError(item)"
-                />
               </template>
               <a class="btn-download btn-download-small" :href="mediaUrl(item)" :download="downloadName(item)" @click="onDownloadClick($event, item)">
                 <DownloadIcon /> Tải
@@ -174,20 +176,22 @@
                 class="detail-media"
               />
               <template v-else>
-                <div v-if="getOrigState(item) === 'loading'" class="img-placeholder shimmer" />
-                <div v-else-if="getOrigState(item) === 'placeholder'" class="img-placeholder">
-                  <span>Đang đồng bộ...</span>
-                  <q-btn size="xs" flat dense label="Thử lại" @click="retryOrig(item)" />
+                <div class="detail-media-wrap">
+                  <img
+                    :src="originalUrl(item)"
+                    :data-orig-id="item.id"
+                    class="detail-media"
+                    :class="{ 'is-loaded': getOrigState(item) === 'loaded' }"
+                    loading="lazy"
+                    @load="onOrigLoaded(item)"
+                    @error="onOrigError(item)"
+                  />
+                  <div v-if="getOrigState(item) === 'loading'" class="img-placeholder shimmer detail-placeholder" />
+                  <div v-else-if="getOrigState(item) === 'placeholder'" class="img-placeholder detail-placeholder">
+                    <span>Đang đồng bộ...</span>
+                    <q-btn size="xs" flat dense label="Thử lại" @click="retryOrig(item)" />
+                  </div>
                 </div>
-                <img
-                  v-show="getOrigState(item) === 'loaded'"
-                  :src="originalUrl(item)"
-                  :data-orig-id="item.id"
-                  class="detail-media"
-                  loading="lazy"
-                  @load="onOrigLoaded(item)"
-                  @error="onOrigError(item)"
-                />
               </template>
               <a class="btn-download btn-download-small" :href="originalUrl(item)" :download="originalDownloadName(item)" @click="onOrigDownloadClick($event, item)">
                 <DownloadIcon /> Tải
@@ -285,8 +289,10 @@ let refreshTimer: ReturnType<typeof setInterval> | null = null
 
 type ImageState = 'loading' | 'loaded' | 'placeholder'
 const imageStates = ref<Record<string, { state: ImageState; retries: number }>>({})
-const IMAGE_MAX_RETRIES = 3
+const IMAGE_QUICK_RETRIES = 3
 const IMAGE_RETRY_DELAYS = [2000, 5000, 10000]
+const IMAGE_RETRY_INTERVAL_MS = 15000
+const retryTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
 const fatalErrorText = ref('')
 const fatalErrorSub = ref('')
@@ -307,7 +313,11 @@ const zipParts = computed(() => splitIntoParts(allItems.value as ZipItem[]))
 
 const pendingImageCount = computed(() => {
   if (!manifestLoaded.value) return 0
-  return allItems.value.filter((item) => item.media_type !== 'video' && getImageState(item) !== 'loaded').length
+  return allItems.value.filter((item) => {
+    if (item.media_type === 'video' || item.media_type === 'animation') return false
+    const s = imageStates.value[item.id]
+    return s !== undefined && s.state !== 'loaded'
+  }).length
 })
 
 const DownloadIcon = () => h('svg', { width: 20, height: 20, viewBox: '0 0 24 24', fill: 'currentColor', 'aria-hidden': 'true' }, [
@@ -350,10 +360,27 @@ function getImageState(item: EventManifestItem): ImageState {
   return imageStates.value[item.id]?.state ?? 'loading'
 }
 
-function initImageState(item: EventManifestItem) {
-  if (!(item.id in imageStates.value)) {
-    imageStates.value[item.id] = { state: 'loading', retries: 0 }
+function clearRetryTimer(key: string) {
+  const timer = retryTimers.get(key)
+  if (timer !== undefined) {
+    clearTimeout(timer)
+    retryTimers.delete(key)
   }
+}
+
+function clearAllRetryTimers() {
+  for (const timer of retryTimers.values()) clearTimeout(timer)
+  retryTimers.clear()
+}
+
+function scheduleRetry(key: string, url: string, selector: string, delay: number) {
+  clearRetryTimer(key)
+  const timer = setTimeout(() => {
+    retryTimers.delete(key)
+    const el = document.querySelector<HTMLImageElement>(selector)
+    if (el) el.src = withCacheBust(url)
+  }, delay)
+  retryTimers.set(key, timer)
 }
 
 function formatDate(value: string | null): string {
@@ -385,7 +412,7 @@ async function loadBrand() {
 async function fetchEvent() {
   if (!eventId.value) return
   try {
-    const resp = await fetch(`events/event_${eventId.value}.json`)
+    const resp = await fetch(`events/event_${eventId.value}.json?v=${Date.now()}`, { cache: 'no-store' })
 
     if (resp.ok) {
       const data = (await resp.json()) as EventManifest
@@ -394,8 +421,11 @@ async function fetchEvent() {
         manifest.value = data
         manifestLoaded.value = true
         loadingPhase.value = 'gallery'
-        for (const item of items) initImageState(item)
-        for (const item of items) initOrigState(item)
+        for (const session of data.sessions ?? []) {
+          if (expanded.value[session.job_identifier] === undefined) {
+            expanded.value[session.job_identifier] = true
+          }
+        }
         if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null }
         void ensureSizes(items as ZipItem[])
         return
@@ -449,6 +479,8 @@ function downloadName(item: EventManifestItem): string {
 }
 
 function withCacheBust(url: string): string {
+  if (!url) return url
+  if (url.includes('X-Amz-Signature=') || url.includes('X-Amz-Credential=')) return url
   return url + (url.includes('?') ? '&' : '?') + 'retry=' + Date.now()
 }
 
@@ -518,28 +550,22 @@ async function prepareZip(partIndex: number) {
 }
 
 function onImgLoaded(item: EventManifestItem) {
+  clearRetryTimer(item.id)
   imageStates.value[item.id] = { state: 'loaded', retries: 0 }
 }
 
 function onImgError(item: EventManifestItem) {
-  const current = imageStates.value[item.id]
-  if (!current) return
-
+  const current = imageStates.value[item.id] ?? { state: 'loading' as ImageState, retries: 0 }
   const nextRetry = current.retries + 1
+  const state: ImageState = nextRetry <= IMAGE_QUICK_RETRIES ? 'loading' : 'placeholder'
+  imageStates.value[item.id] = { state, retries: nextRetry }
 
-  if (nextRetry <= IMAGE_MAX_RETRIES) {
-    imageStates.value[item.id] = { state: 'loading', retries: nextRetry }
-    const delay = IMAGE_RETRY_DELAYS[nextRetry - 1] || 10000
-    setTimeout(() => {
-      const el = document.querySelector<HTMLImageElement>(`img[data-img-id="${item.id}"]`)
-      if (el) el.src = withCacheBust(mediaUrl(item))
-    }, delay)
-  } else {
-    imageStates.value[item.id] = { state: 'placeholder', retries: nextRetry }
-  }
+  const delay = IMAGE_RETRY_DELAYS[nextRetry - 1] ?? IMAGE_RETRY_INTERVAL_MS
+  scheduleRetry(item.id, mediaUrl(item), `img[data-img-id="${item.id}"]`, delay)
 }
 
 function retryImage(item: EventManifestItem) {
+  clearRetryTimer(item.id)
   imageStates.value[item.id] = { state: 'loading', retries: 0 }
   const el = document.querySelector<HTMLImageElement>(`img[data-img-id="${item.id}"]`)
   if (el) el.src = withCacheBust(mediaUrl(item))
@@ -549,39 +575,27 @@ function getOrigState(item: EventManifestItem): ImageState {
   return imageStates.value['orig:' + item.id]?.state ?? 'loading'
 }
 
-function initOrigState(item: EventManifestItem) {
-  if (!item.original_path) return
-  const key = 'orig:' + item.id
-  if (!(key in imageStates.value)) {
-    imageStates.value[key] = { state: 'loading', retries: 0 }
-  }
-}
-
 function onOrigLoaded(item: EventManifestItem) {
-  imageStates.value['orig:' + item.id] = { state: 'loaded', retries: 0 }
+  const key = 'orig:' + item.id
+  clearRetryTimer(key)
+  imageStates.value[key] = { state: 'loaded', retries: 0 }
 }
 
 function onOrigError(item: EventManifestItem) {
   const key = 'orig:' + item.id
-  const current = imageStates.value[key]
-  if (!current) return
-
+  const current = imageStates.value[key] ?? { state: 'loading' as ImageState, retries: 0 }
   const nextRetry = current.retries + 1
+  const state: ImageState = nextRetry <= IMAGE_QUICK_RETRIES ? 'loading' : 'placeholder'
+  imageStates.value[key] = { state, retries: nextRetry }
 
-  if (nextRetry <= IMAGE_MAX_RETRIES) {
-    imageStates.value[key] = { state: 'loading', retries: nextRetry }
-    const delay = IMAGE_RETRY_DELAYS[nextRetry - 1] || 10000
-    setTimeout(() => {
-      const el = document.querySelector<HTMLImageElement>(`img[data-orig-id="${item.id}"]`)
-      if (el) el.src = withCacheBust(originalUrl(item))
-    }, delay)
-  } else {
-    imageStates.value[key] = { state: 'placeholder', retries: nextRetry }
-  }
+  const delay = IMAGE_RETRY_DELAYS[nextRetry - 1] ?? IMAGE_RETRY_INTERVAL_MS
+  scheduleRetry(key, originalUrl(item), `img[data-orig-id="${item.id}"]`, delay)
 }
 
 function retryOrig(item: EventManifestItem) {
-  imageStates.value['orig:' + item.id] = { state: 'loading', retries: 0 }
+  const key = 'orig:' + item.id
+  clearRetryTimer(key)
+  imageStates.value[key] = { state: 'loading', retries: 0 }
   const el = document.querySelector<HTMLImageElement>(`img[data-orig-id="${item.id}"]`)
   if (el) el.src = withCacheBust(originalUrl(item))
 }
@@ -592,6 +606,9 @@ function restartLoading() {
   manifestLoaded.value = false
   manifest.value = null
   imageStates.value = {}
+  expanded.value = {}
+  expandedOriginals.value = {}
+  clearAllRetryTimers()
   if (!refreshTimer) {
     void fetchEvent()
     refreshTimer = setInterval(() => { if (!manifestLoaded.value) void fetchEvent() }, POLL_INTERVAL_MS)
@@ -602,8 +619,8 @@ function stopPolling() {
   if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null }
 }
 
-onMounted(async () => {
-  await loadBrand()
+onMounted(() => {
+  void loadBrand()
   if (eventId.value) {
     void fetchEvent()
     refreshTimer = setInterval(() => { if (!manifestLoaded.value) void fetchEvent() }, POLL_INTERVAL_MS)
@@ -612,6 +629,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   stopPolling()
+  clearAllRetryTimers()
   for (const url of objectUrls) URL.revokeObjectURL(url)
 })
 </script>
@@ -697,8 +715,14 @@ onBeforeUnmount(() => {
   background: #fff; border-radius: 16px; padding: 12px; margin-bottom: 18px;
   box-shadow: 0 2px 14px rgba(169,204,227,0.16);
 }
-.collage-wrap { border-radius: 12px; overflow: hidden; background: #e8ecf1; }
-.collage-media { width: 100%; height: auto; display: block; background: #e8ecf1; }
+.collage-wrap { position: relative; min-height: 180px; border-radius: 12px; overflow: hidden; background: #e8ecf1; }
+.collage-media { width: 100%; height: auto; display: block; background: #e8ecf1; opacity: 0; transition: opacity .2s; }
+.collage-media.is-loaded { opacity: 1; }
+.collage-placeholder {
+  position: absolute; inset: 0; min-height: 0; border: none; border-radius: 12px;
+  background: #e8ecf1;
+}
+.collage-placeholder.shimmer { background: linear-gradient(90deg, #e2e8f0 25%, #f0f4f8 50%, #e2e8f0 75%); background-size: 200% 100%; }
 .img-placeholder {
   width: 100%; min-height: 180px; display: flex; flex-direction: column; gap: 4px;
   align-items: center; justify-content: center; color: #6B8299; font-size: 0.75rem; text-align: center; padding: 8px; box-sizing: border-box;
@@ -716,7 +740,14 @@ onBeforeUnmount(() => {
   margin-top: 12px; padding-top: 12px; border-top: 1px dashed rgba(169,204,227,0.5);
 }
 .detail-card { display: flex; flex-direction: column; }
-.detail-media { width: 100%; height: auto; border-radius: 10px; display: block; background: #e8ecf1; }
+.detail-media-wrap { position: relative; min-height: 120px; }
+.detail-media { width: 100%; height: auto; border-radius: 10px; display: block; background: #e8ecf1; opacity: 0; transition: opacity .2s; }
+.detail-media.is-loaded { opacity: 1; }
+.detail-placeholder {
+  position: absolute; inset: 0; min-height: 0; border: none; border-radius: 10px;
+  background: #e8ecf1;
+}
+.detail-placeholder.shimmer { background: linear-gradient(90deg, #e2e8f0 25%, #f0f4f8 50%, #e2e8f0 75%); background-size: 200% 100%; }
 
 .sync-status {
   display: flex; align-items: center; gap: 8px; justify-content: center;
