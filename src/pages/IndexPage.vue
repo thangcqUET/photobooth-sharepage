@@ -83,9 +83,30 @@
         </div>
       </div>
 
-      <!-- Individual photos strip -->
-      <div v-if="!originalsOnly" class="strip-section">
-        <div class="section-label">{{ brand.messages.more_photos || $t('LABEL_MORE_PHOTOS') }}</div>
+      <!-- Videos (always visible, independent of edited/original logic) -->
+      <div v-if="videoItems.length > 0" class="video-section">
+        <div class="section-label">{{ $t('LABEL_VIDEO') }}</div>
+        <div class="video-list">
+          <div v-for="item in videoItems" :key="'video-' + item.id" class="video-card">
+            <video
+              :src="mediaUrl(item)"
+              :poster="thumbUrl(item) || undefined"
+              controls
+              playsinline
+              preload="metadata"
+              class="video-player"
+            />
+            <a class="strip-download-btn" :href="mediaUrl(item)" :download="downloadName(item)" @click="onDownloadClick($event, item)">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+              {{ $t('BTN_DOWNLOAD') }}
+            </a>
+          </div>
+        </div>
+      </div>
+
+      <!-- Edited individual photos -->
+      <div v-if="!originalsOnly && (!manifestLoaded || stripItems.length > 0)" class="strip-section">
+        <div class="section-label">{{ $t('LABEL_EDITED_PHOTOS') }}</div>
 
         <!-- Skeleton placeholder strips -->
         <div v-if="!manifestLoaded" class="photo-grid">
@@ -263,6 +284,7 @@ interface SessionManifestItem {
   original_size?: number
   original_urls?: string[]
   session_mode?: string
+  edited?: boolean
 }
 
 interface BrandData {
@@ -338,22 +360,18 @@ function scheduleRetry(key: string, url: string, selector: string, delay: number
 }
 
 const collageItems = computed(() => sessionItems.value.filter(i => i.media_type === 'collage' || i.media_type === 'animation'))
+const videoItems = computed(() => sessionItems.value.filter(i => i.media_type === 'video'))
+const hasEditedMetadata = computed(() => sessionItems.value.some(i => typeof i.edited === 'boolean'))
 const stripItems = computed(() => {
-  const items = sessionItems.value.filter(i => i.media_type !== 'collage' && i.media_type !== 'animation')
-  return [...items].sort((a, b) => {
-    if (a.media_type === 'video' && b.media_type !== 'video') return -1
-    if (a.media_type !== 'video' && b.media_type === 'video') return 1
-    return 0
-  })
+  const candidates = sessionItems.value.filter(
+    (i) => i.media_type !== 'collage' && i.media_type !== 'animation' && i.media_type !== 'video',
+  )
+  return hasEditedMetadata.value ? candidates.filter((i) => i.edited === true) : candidates
 })
-
-const allImageItems = computed(() =>
-  sessionItems.value.filter(i => i.media_type !== 'video' && i.media_type !== 'animation'),
-)
 
 const pendingImageCount = computed(() => {
   if (!manifestLoaded.value) return 0
-  return allImageItems.value.filter(item => {
+  return stripItems.value.filter(item => {
     const s = imageStates.value[item.id]
     return s !== undefined && s.state !== 'loaded'
   }).length
@@ -465,6 +483,14 @@ function withCacheBust(url: string): string {
   if (!url) return url
   if (url.includes('X-Amz-Signature=') || url.includes('X-Amz-Credential=')) return url
   return url + (url.includes('?') ? '&' : '?') + 'retry=' + Date.now()
+}
+
+function thumbUrl(item: SessionManifestItem): string {
+  if (item.thumbnail) return `./${item.thumbnail}`
+  const source = item.path || item.urls?.[0] || ''
+  const base = source.split('?')[0] ?? ''
+  if (!base) return ''
+  return `./${base.replace(/\.[^./]+$/, '.thumb.jpg')}`
 }
 
 function originalUrl(item: SessionManifestItem): string {
@@ -741,6 +767,15 @@ onBeforeUnmount(() => {
 
 /* ── Strip ── */
 
+.video-section { margin-bottom: 24px; }
+.video-list { display: flex; flex-direction: column; gap: 12px; }
+.video-card {
+  background: #fff; border-radius: 12px; box-shadow: 0 2px 12px rgba(169,204,227,0.12);
+  padding: 8px;
+}
+.video-player {
+  width: 100%; display: block; border-radius: 8px; background: #000;
+}
 .strip-section { margin-bottom: 24px; overflow: hidden; }
 .originals-section { margin-bottom: 24px; overflow: hidden; }
 .section-label {

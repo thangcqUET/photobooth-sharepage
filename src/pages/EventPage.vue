@@ -84,7 +84,7 @@
             <video
               v-if="repFor(session).media_type === 'video'"
               :src="mediaUrl(repFor(session))"
-              :poster="repFor(session).thumbnail ? './' + repFor(session).thumbnail : undefined"
+              :poster="thumbUrl(repFor(session)) || undefined"
               controls
               muted
               playsinline
@@ -114,25 +114,43 @@
             <span v-if="session.created_at" class="session-time">{{ formatTime(session.created_at) }}</span>
           </div>
 
+          <!-- Session videos: always visible -->
+          <div v-if="videosFor(session).length > 0" class="event-video-list">
+            <div v-for="item in videosFor(session)" :key="'video-' + item.id" class="event-video-card">
+              <video
+                :src="mediaUrl(item)"
+                :poster="thumbUrl(item) || undefined"
+                controls
+                muted
+                playsinline
+                preload="metadata"
+                class="event-video"
+              />
+              <a class="btn-download btn-download-small" :href="mediaUrl(item)" :download="downloadName(item)" @click="onDownloadClick($event, item)">
+                <DownloadIcon /> Tải
+              </a>
+            </div>
+          </div>
+
           <div class="session-actions">
             <a class="btn-download" :href="mediaUrl(repFor(session))" :download="downloadName(repFor(session))" @click="onDownloadClick($event, repFor(session))">
               <DownloadIcon /> Tải
             </a>
-            <button class="btn-secondary" @click="toggleDetails(session.job_identifier)">
-              {{ isExpanded(session.job_identifier) ? 'Thu gọn' : `Xem chi tiết (${session.items.length})` }}
+            <button v-if="editedFor(session).length > 0" class="btn-secondary" @click="toggleDetails(session.job_identifier)">
+              {{ isExpanded(session.job_identifier) ? 'Thu gọn' : `Xem chi tiết (${editedFor(session).length})` }}
             </button>
             <button v-if="originalsFor(session).length > 0" class="btn-secondary" @click="toggleOriginals(session.job_identifier)">
               {{ isOriginalsExpanded(session.job_identifier) ? 'Thu gọn' : `Ảnh gốc (${originalsFor(session).length})` }}
             </button>
           </div>
 
-          <!-- Details: all items of the session -->
+          <!-- Details: edited individual items of the session -->
           <div v-if="isExpanded(session.job_identifier)" class="details-grid">
-            <div v-for="item in session.items" :key="item.id" class="detail-card">
+            <div v-for="item in editedFor(session)" :key="item.id" class="detail-card">
               <video
                 v-if="item.media_type === 'video'"
                 :src="mediaUrl(item)"
-                :poster="item.thumbnail ? './' + item.thumbnail : undefined"
+                :poster="thumbUrl(item) || undefined"
                 controls
                 muted
                 playsinline
@@ -244,9 +262,11 @@ function fixUrl(url: string): string {
 
 interface EventManifestItem extends ZipItem {
   urls?: string[]
+  thumbnail?: string
   original_path?: string
   original_size?: number
   original_urls?: string[]
+  edited?: boolean
 }
 
 interface EventManifestSession {
@@ -338,6 +358,18 @@ function toggleDetails(id: string) {
 
 function originalsFor(session: EventManifestSession): EventManifestItem[] {
   return session.items.filter((i) => !!i.original_path)
+}
+
+function videosFor(session: EventManifestSession): EventManifestItem[] {
+  return session.items.filter((i) => i.media_type === 'video')
+}
+
+function editedFor(session: EventManifestSession): EventManifestItem[] {
+  const candidates = session.items.filter(
+    (i) => i.media_type !== 'collage' && i.media_type !== 'animation' && i.media_type !== 'video',
+  )
+  if (!session.items.some((i) => typeof i.edited === 'boolean')) return candidates
+  return candidates.filter((i) => i.edited === true)
 }
 
 function isOriginalsExpanded(id: string): boolean {
@@ -482,6 +514,14 @@ function withCacheBust(url: string): string {
   if (!url) return url
   if (url.includes('X-Amz-Signature=') || url.includes('X-Amz-Credential=')) return url
   return url + (url.includes('?') ? '&' : '?') + 'retry=' + Date.now()
+}
+
+function thumbUrl(item: EventManifestItem): string {
+  if (item.thumbnail) return `./${item.thumbnail}`
+  const source = item.path || item.urls?.[0] || ''
+  const base = source.split('?')[0] ?? ''
+  if (!base) return ''
+  return `./${base.replace(/\.[^./]+$/, '.thumb.jpg')}`
 }
 
 function originalUrl(item: EventManifestItem): string {
@@ -733,6 +773,9 @@ onBeforeUnmount(() => {
 .session-actions { display: flex; gap: 10px; }
 .session-actions .btn-download { flex: 1; }
 .session-actions .btn-secondary { flex: 1; }
+.event-video-list { display: flex; flex-direction: column; gap: 10px; margin: 8px 0 12px; }
+.event-video-card { display: flex; flex-direction: column; gap: 8px; }
+.event-video { width: 100%; display: block; border-radius: 12px; background: #000; }
 
 /* ── Details grid ── */
 .details-grid {
